@@ -1,3 +1,6 @@
+use aes::block_cipher::generic_array::GenericArray;
+use aes::block_cipher::{BlockCipher, NewBlockCipher};
+use aes::Aes128;
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -267,13 +270,25 @@ pub fn decipher_repeating_key_xor_cipher(ciphertext: &[u8], keysize: usize) -> V
     result
 }
 
+pub fn aes_ecb_decipher(key: &[u8], ciphertext: &[u8]) -> Vec<u8> {
+    let key = GenericArray::from_slice(&key);
+    let cipher = Aes128::new(&key);
+
+    let mut plaintext = Vec::new();
+    for chunk in ciphertext.chunks_exact(16) {
+        let mut block = GenericArray::clone_from_slice(&chunk);
+        cipher.decrypt_block(&mut block);
+        plaintext.extend(block.as_slice());
+    }
+
+    plaintext
+}
+
 #[cfg(test)]
 mod tests {
     use crate::*;
     use std::fs::File;
     use std::io::Read;
-
-    use openssl::symm::{Cipher, Crypter, Mode};
 
     #[test]
     fn challenge1() {
@@ -395,17 +410,11 @@ I go crazy when I hear a cymbal".as_bytes(),
         let ciphertext = from_base64(&ciphertext).unwrap();
 
         let key = "YELLOW SUBMARINE";
-        let mut decrypter =
-            Crypter::new(Cipher::aes_128_ecb(), Mode::Decrypt, key.as_bytes(), None).unwrap();
-
-        let block_size = Cipher::aes_128_cbc().block_size();
-        let mut plaintext = vec![0; ciphertext.len() + block_size];
-
-        let count = decrypter.update(&ciphertext, &mut plaintext).unwrap();
-        plaintext.truncate(count);
-        assert!(String::from_utf8(plaintext)
-            .unwrap()
-            .starts_with("I\'m back and I\'m ringin\' the bell \n"));
+        assert!(
+            String::from_utf8(aes_ecb_decipher(key.as_bytes(), &ciphertext))
+                .unwrap()
+                .starts_with("I\'m back and I\'m ringin\' the bell \n")
+        );
     }
 
     #[test]
